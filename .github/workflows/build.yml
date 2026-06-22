@@ -181,48 +181,52 @@ jobs:
           ls -la artifacts/
 
       - name: 签名检查（调试）
+        if: always()
         env:
           PKG_NAME: ${{ needs.prepare.outputs.pkg-name }}
         run: |
-          echo "## 签名调试信息" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### ldid 版本" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          ldid -V 2>&1 | head -1 >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### deb 内容" >> $GITHUB_STEP_SUMMARY
-          DEB=$(ls artifacts/*.deb | head -1)
-          TMPDIR=$(mktemp -d)
-          dpkg-deb -x "$DEB" "$TMPDIR/extract"
-          DYLIB=$(find "$TMPDIR/extract" -name "*.dylib" | head -1)
-          echo "dylib: \`$DYLIB\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### file" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          file "$DYLIB" >> $GITHUB_STEP_SUMMARY 2>&1
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### ldid -h (CDHash)" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          ldid -h "$DYLIB" 2>&1 | grep -E "Identifier|CDHash|CodeDirectory|Hash type|TeamIdentifier" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### ldid -e (entitlements)" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          ENT=$(ldid -e "$DYLIB" 2>&1)
-          if [ -z "$ENT" ]; then
-            echo "(空 - 无 entitlements)" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "$ENT" >> $GITHUB_STEP_SUMMARY
-          fi
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### otool LC_CODE_SIGNATURE" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          otool -l "$DYLIB" 2>&1 | grep -A4 "LC_CODE_SIGNATURE" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## 签名调试信息"
+            echo ""
+            echo "### ldid 版本"
+            echo '```'
+            ldid -V 2>&1 | head -1
+            echo '```'
+            echo ""
+            echo "### deb 内容"
+            DEB=$(ls artifacts/*.deb 2>/dev/null | head -1)
+            TMPDIR=$(mktemp -d)
+            dpkg-deb -x "$DEB" "$TMPDIR/extract"
+            DYLIB=$(find "$TMPDIR/extract" -name "*.dylib" | head -1)
+            echo "dylib: \`$DYLIB\`"
+            echo ""
+            echo "### file"
+            echo '```'
+            file "$DYLIB" 2>&1
+            echo '```'
+            echo ""
+            echo "### ldid -h (CDHash)"
+            echo '```'
+            ldid -h "$DYLIB" 2>&1 | grep -E "Identifier|CDHash|CodeDirectory|Hash type|TeamIdentifier" || echo "(无签名)"
+            echo '```'
+            echo ""
+            echo "### ldid -e (entitlements)"
+            echo '```'
+            ENT=$(ldid -e "$DYLIB" 2>&1)
+            if [ -z "$ENT" ]; then
+              echo "(空 - 无 entitlements)"
+            else
+              echo "$ENT"
+            fi
+            echo '```'
+            echo ""
+            echo "### otool LC_CODE_SIGNATURE"
+            echo '```'
+            otool -l "$DYLIB" 2>&1 | grep -A4 "LC_CODE_SIGNATURE" || echo "(otool 不可用或无 LC_CODE_SIGNATURE)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
           rm -rf "$TMPDIR"
+          exit 0
 
       - name: 上传 artifact
         uses: actions/upload-artifact@v4
