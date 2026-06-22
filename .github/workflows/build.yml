@@ -77,7 +77,6 @@ jobs:
     name: 构建 (${{ matrix.scheme }})
     needs: prepare
     runs-on: macos-latest
-    continue-on-error: ${{ matrix.scheme == 'roothide' }}
     strategy:
       fail-fast: false
       matrix:
@@ -90,7 +89,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/theos
-          key: theos-macos-${{ inputs.theos-ref }}-v1
+          key: theos-macos-${{ inputs.theos-ref }}-v2
 
       - name: Setup Theos
         env:
@@ -99,9 +98,10 @@ jobs:
           set -x
           echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
           if [ ! -d "$HOME/theos/.git" ]; then
+            # roothide/theos 兼容官方 theos，且支持 roothide scheme
             git clone --recursive --depth 1 --branch "$THEOS_REF" \
-              https://github.com/theos/theos.git "$HOME/theos" || \
-            git clone --recursive --depth 1 https://github.com/theos/theos.git "$HOME/theos"
+              https://github.com/roothide/theos.git "$HOME/theos" || \
+            git clone --recursive --depth 1 https://github.com/roothide/theos.git "$HOME/theos"
           fi
           # ldid：Theos 签名必需，macOS runner 用 brew 装
           brew install ldid 2>/dev/null || true
