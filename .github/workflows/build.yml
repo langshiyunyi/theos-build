@@ -43,13 +43,12 @@ on:
         default: ''
 
 env:
-  THEOS: /opt/theos
   THEOS_LANGUAGE: english
 
 jobs:
   prepare:
     name: 准备
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     outputs:
       schemes: ${{ steps.set.outputs.schemes }}
       pkg-name: ${{ steps.set.outputs.pkg-name }}
@@ -77,7 +76,7 @@ jobs:
   build:
     name: 构建 (${{ matrix.scheme }})
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     strategy:
       fail-fast: false
       matrix:
@@ -86,79 +85,77 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 安装系统依赖
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential dpkg-dev fakeroot perl rsync curl ca-certificates \
-            libplist-dev libssl-dev libc++-dev zlib1g-dev unzip
-
       - name: 缓存 Theos
         uses: actions/cache@v4
         with:
-          path: /opt/theos
-          key: theos-ubuntu-${{ inputs.theos-ref }}-v1
+          path: ~/theos
+          key: theos-macos-${{ inputs.theos-ref }}-v1
 
-      - name: 安装 Theos
+      - name: Setup Theos
         env:
           THEOS_REF: ${{ inputs.theos-ref }}
         run: |
-          if [ ! -d /opt/theos/.git ]; then
+          set -x
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+          if [ ! -d "$HOME/theos/.git" ]; then
             git clone --recursive --depth 1 --branch "$THEOS_REF" \
-              https://github.com/theos/theos.git /opt/theos || \
-            git clone --recursive --depth 1 https://github.com/theos/theos.git /opt/theos
+              https://github.com/theos/theos.git "$HOME/theos" || \
+            git clone --recursive --depth 1 https://github.com/theos/theos.git "$HOME/theos"
           fi
-
-      - name: 安装 ldid
-        run: |
-          if ! command -v ldid >/dev/null 2>&1; then
-            git clone --depth 1 https://github.com/theos/ldid.git /tmp/ldid
-            make -C /tmp/ldid
-            sudo make -C /tmp/ldid install PREFIX=/usr
-            rm -rf /tmp/ldid
-          fi
+          # ldid：Theos 签名必需，macOS runner 用 brew 装
+          brew install ldid 2>/dev/null || true
           ldid -V 2>/dev/null || true
 
       - name: 安装 iOS SDK
         env:
           SDK_INPUT: ${{ inputs.sdk-version }}
         run: |
-          mkdir -p /opt/theos/sdks
-          cd /opt/theos/sdks
+          set -x
+          mkdir -p "$HOME/theos/sdks"
+          cd "$HOME/theos/sdks"
           # 指定版本优先
-          if [ -n "$SDK_INPUT" ]; then
-            if [ ! -d "iPhoneOS${SDK_INPUT}.sdk" ]; then
-              url="https://github.com/theos/sdks/raw/master/iPhoneOS${SDK_INPUT}.sdk.tar.xz"
-              curl -fsSL "$url" -o sdk.tar.xz && tar -xf sdk.tar.xz && rm -f sdk.tar.xz
-            fi
-            ls -1d "iPhoneOS${SDK_INPUT}.sdk" && exit 0
+          if [ -n "$SDK_INPUT" ] && [ ! -d "iPhoneOS${SDK_INPUT}.sdk" ]; then
+            for url in \
+              "https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS${SDK_INPUT}.sdk.tar.xz" \
+              "https://github.com/theos/sdks/raw/master/iPhoneOS${SDK_INPUT}.sdk.tar.xz"; do
+              if curl -fsSL "$url" -o /tmp/sdk.tar.xz; then
+                tar -xf /tmp/sdk.tar.xz && rm -f /tmp/sdk.tar.xz
+                break
+              fi
+            done
           fi
-          # 自动选择
-          for sdk in iPhoneOS16.5 iPhoneOS15.2 iPhoneOS14.5 iPhoneOS13.0; do
-            if [ -d "${sdk}.sdk" ]; then exit 0; fi
-          done
-          for sdk in iPhoneOS16.5 iPhoneOS15.2 iPhoneOS14.5 iPhoneOS13.0; do
-            url="https://github.com/theos/sdks/raw/master/${sdk}.sdk.tar.xz"
-            if curl -fsSL "$url" -o sdk.tar.xz; then
-              tar -xf sdk.tar.xz && rm -f sdk.tar.xz
-              echo "已安装 SDK: ${sdk}.sdk"
-              exit 0
-            fi
-          done
-          echo "::error::无法安装 iOS SDK"
-          exit 1
+          # 自动选择（16.5 → 15.2 → 14.5）
+          if [ -z "$(ls -d iPhoneOS*.sdk 2>/dev/null)" ]; then
+            for sdk in 16.5 15.2 14.5; do
+              for url in \
+                "https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS${sdk}.sdk.tar.xz" \
+                "https://github.com/theos/sdks/raw/master/iPhoneOS${sdk}.sdk.tar.xz"; do
+                if curl -fsSL "$url" -o /tmp/sdk.tar.xz; then
+                  tar -xf /tmp/sdk.tar.xz && rm -f /tmp/sdk.tar.xz
+                  break 2
+                fi
+              done
+            done
+          fi
+          installed=$(ls -1d iPhoneOS*.sdk 2>/dev/null | head -1)
+          if [ -z "$installed" ]; then
+            echo "::error::无法安装 iOS SDK"
+            exit 1
+          fi
+          echo "已安装 SDK: $installed"
 
-      - name: 构建
+      - name: 构建 deb
         env:
           PKG_NAME: ${{ needs.prepare.outputs.pkg-name }}
           EXTRA_FLAGS: ${{ inputs.extra-make-flags }}
         run: |
+          set -x
           echo "::group::make clean"
-          make clean THEOS=/opt/theos || true
+          make clean THEOS="$HOME/theos" || true
           echo "::endgroup::"
           echo "::group::make ${{ inputs.make-target }}"
           make ${{ inputs.make-target }} \
-            THEOS=/opt/theos \
+            THEOS="$HOME/theos" \
             THEOS_PACKAGE_SCHEME=${{ matrix.scheme }} \
             $EXTRA_FLAGS
           echo "::endgroup::"
@@ -167,6 +164,7 @@ jobs:
         env:
           PKG_NAME: ${{ needs.prepare.outputs.pkg-name }}
         run: |
+          set -x
           mkdir -p artifacts
           find packages -name "*.deb" -print -exec cp {} artifacts/ \;
           if [ -z "$(ls -A artifacts 2>/dev/null)" ]; then
