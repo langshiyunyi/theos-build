@@ -113,7 +113,8 @@ jobs:
         run: |
           if ! command -v ldid >/dev/null 2>&1; then
             git clone --depth 1 https://github.com/theos/ldid.git /tmp/ldid
-            make -C /tmp/ldid install PREFIX=/usr
+            make -C /tmp/ldid
+            sudo make -C /tmp/ldid install PREFIX=/usr
             rm -rf /tmp/ldid
           fi
           ldid -V 2>/dev/null || true
