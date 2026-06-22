@@ -185,6 +185,7 @@ jobs:
         env:
           PKG_NAME: ${{ needs.prepare.outputs.pkg-name }}
         run: |
+          set +e
           {
             echo "## 签名调试信息"
             echo ""
